@@ -1,0 +1,230 @@
+
+Description:  Deploys a VPC public subnet, route tables, routes,
+  network ACLs, and security groups associated with the public subnet. It then 
+  deploys an EC2 instance to act as a Bastion host with RDP access FROM the internet, and TO
+  an internal Bastion host (existing).
+
+## PARAMETERS ............................................................... ##
+Parameters:
+
+  vpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/vpcId'
+
+  igwId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/igwId'
+
+  publicSubnetCIDR:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/publicSubnetCIDR'
+
+  publicSubnetAZ:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/publicSubnetAZ'
+
+  amiId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/amiId'
+
+  ec2InstanceType:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/ec2InstanceType'
+
+  ec2KeyPair:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/ec2KeyPair'
+
+  ec2PrivateIp:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/ec2PrivateIp'
+
+  ec2InternalBastionIp: #As CIDR block
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/secrets/systems/bastion/cloudformation/parameters/ec2InternalBastionIp'
+
+## RESOURCES ................................................................ ##
+Resources:
+
+  # Public Subnet ............................................................ /
+  publicSubnetSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpcId
+      AvailabilityZone: !Ref publicSubnetAZ
+      CidrBlock: !Ref publicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Bastion_external
+        - Key: Mode
+          Value: production
+        - Key: Service
+          Value: bastion
+        - Key: cost_center
+          Value: bastion
+
+  # Route table, routes, and associations .................................... /
+  publicSubnetRoutetableInternet:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpcId
+      Tags:
+        - Key: Name
+          Value: Bastion_external
+        - Key: Mode
+          Value: production
+        - Key: Service
+          Value: bastion
+        - Key: cost_center
+          Value: bastion
+
+  publicSubnetRouteInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref publicSubnetRoutetableInternet
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref igwId
+
+  publicSubnetRoutetableInternetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref publicSubnetRoutetableInternet
+      SubnetId: !Ref publicSubnetSubnet
+
+  # Security Group ........................................................... /
+  publicSubnetSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "bastion_external"
+      GroupDescription: "Allows RDP from the internet. Is allowed RDP to Bastion_internal"
+      VpcId: !Ref vpcId
+      SecurityGroupIngress:
+          - IpProtocol: TCP
+            FromPort: 3389
+            ToPort: 3389
+            CidrIp: 0.0.0.0/0
+            Description: "Allow RDP connection from internet"
+          - IpProtocol: -1
+            CidrIp: !Ref ec2InternalBastionIp
+            Description: "Allows RDP replies from Bastion_internal instance"
+
+      SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+            Description: "Allows RDP replies back to internet"
+          - IpProtocol: TCP
+            FromPort: 3389
+            ToPort: 3389
+            CidrIp: !Ref ec2InternalBastionIp
+            Description: "Allow RDP connection to Bastion_internal Instance"
+
+      Tags:
+        - Key: Name
+          Value: Bastion_external
+        - Key: Mode
+          Value: production
+        - Key: Service
+          Value: bastion
+        - Key: cost_center
+          Value: bastion   
+
+  # Network ACL, rules, associations ......................................... /
+  publicSubnetNacl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref vpcId
+      Tags:
+        - Key: Name
+          Value: Bastion_external
+        - Key: Mode
+          Value: production
+        - Key: Service
+          Value: bastion
+        - Key: cost_center
+          Value: bastion
+
+  publicSubnetNaclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties: 
+      NetworkAclId: !Ref publicSubnetNacl
+      SubnetId: !Ref publicSubnetSubnet
+
+  # Inbounds
+  publicSubnetNaclRuleInbound1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref publicSubnetNacl
+      PortRange: 
+        From: 3389
+        To: 3389
+      Protocol: 6
+      RuleAction: allow
+      RuleNumber: 10
+
+  publicSubnetNaclRuleInbound2:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: !Ref ec2InternalBastionIp
+      Egress: false
+      NetworkAclId: !Ref publicSubnetNacl
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 20
+
+  # Outbounds
+  publicSubnetNaclRuleOutbound1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref publicSubnetNacl
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 10
+
+  publicSubnetNaclRuleOutbound2:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+      CidrBlock: !Ref ec2InternalBastionIp
+      Egress: true
+      NetworkAclId: !Ref publicSubnetNacl
+      Protocol: 6
+      PortRange: 
+        From: 3389
+        To: 3389
+      RuleAction: allow
+      RuleNumber: 20
+
+
+  # Bastion EC2 Instance ..................................................... /
+  bastionExternal:
+    Type: AWS::EC2::Instance
+    Properties: 
+      AvailabilityZone: !Ref publicSubnetAZ
+      ImageId: !Ref amiId
+      InstanceType: !Ref ec2InstanceType
+      KeyName: !Ref ec2KeyPair
+      PrivateIpAddress: !Ref ec2PrivateIp
+      SecurityGroupIds: 
+        - !Ref publicSubnetSG
+      SubnetId: !Ref publicSubnetSubnet
+      Tags:
+        - Key: Name
+          Value: Bastion_external
+        - Key: Mode
+          Value: production
+        - Key: Service
+          Value: bastion
+        - Key: cost_center
+          Value: bastion
+      UserData: !Base64 <powershell>Set-TimeZone -id "Pacific Standard Time"; New-LocalUser -Name "{0}" -Password (ConvertTo-SecureString -AsPlainText "{1}" -Force); Add-LocalGroupMember -Group "Remote Desktop Users" -Member "{0}"</powershell>
+
+## OUTPUTS .................................................................. ##
+Outputs:
+
+  bastionExternalId:
+    Description: A reference to the ec2 instance
+    Value: !Ref bastionExternal
