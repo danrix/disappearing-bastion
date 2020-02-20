@@ -1,4 +1,5 @@
 import boto3
+import json
 import os
 
 def lambda_handler(event, context):
@@ -32,18 +33,44 @@ def lambda_handler(event, context):
     client = boto3.client('events')
 
     for rule in os.environ['rules_names'].split(','):
-        # Remove Target(s) ......
+        # Set cron back in time to avoid running
         try:
             response = client.put_rule(
                 Name=rule,
                 Description='',
-                ScheduleExpression='cron({* * * * ? 1999)'
+                ScheduleExpression='cron(* * * * ? 1999)'
             )
         except Exception as e:
             print('Failed to set-back target(s): ',e)
         else:
-            print('Set time back to 1999 for rule(s) in EventBridge: ',os.environ['rules_names'])
-            
-    return 400
+            print('Set time back to 1999 for rule in EventBridge: ',rule)
+
+            # Get list of targets per rule
+            try:
+                response = client.list_targets_by_rule(
+                    Rule=rule,
+                )
+            except Exception as e:
+                print('Failed to get list of targets for rule',e)
+            else:
+                # Clear the input for every target in every rule
+                for target in response['Targets'] :
+                    try:
+                        response = client.put_targets(
+                            Rule=rule,
+                            Targets=[
+                                {
+                                    'Id': target['Id'],
+                                    'Arn': target['Arn'],
+                                    'Input': json.dumps('{}')
+                                },
+                            ]
+                        )
+                    except Exception as e:
+                        print('Failed attempt to update target\'s input on rule ',e)
+                    else:
+                        print('Updated event and target successfully: ',target['Arn'])
+
+    return 200
 
     

@@ -3,12 +3,32 @@ import json
 import os
 
 def lambda_handler(event, context):
-    # Determine if requestor of delete is the owner of the stack ............. /
-    # Or a member of the admins group
-    is_auth = False
-    if (event['detail']['source'] in os.environ['admins_group'].split(',')) or (event['detail']['source'] == event['detail']['stack_owner']):
-        is_auth = True
+    # Get Stack details ...................................................... /
+    client = boto3.client('cloudformation')
 
+    try:
+        response = client.describe_stacks(
+            StackName=os.environ['stack_name']
+        )
+    except Exception as e:
+        raise e
+    else:
+        # Prepare to delete stack ............................................ /
+        is_auth = False
+
+        # Determine if requestor is a member of the admins group
+        if event['detail']['source'] in os.environ['admins_group'].split(','):
+            is_auth = True
+            print('is not admin')
+
+        # Or determine if the requestor owns the stack
+        for stack in response['Stacks']:
+            for tag in stack['Tags']:
+                if tag['Key'] == 'owner':
+                    if tag['Value'] == event['detail']['source']:
+                        is_auth = True
+    
+    # Exit if no authorization found ......................................... /
     if not is_auth:
         print('Unauthorized attempt to delete someone else\'s stack by: ',event['detail']['source'])
         return 500
