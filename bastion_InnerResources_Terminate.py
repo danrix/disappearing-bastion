@@ -12,7 +12,6 @@ def lambda_handler(event, context):
         ) 
     except Exception as e:
         print('Failed to get inner bastion instance Id: ',e)
-        return 500
     else:
 
         # Attempt to stop inner bastion instance ............................. /
@@ -26,7 +25,25 @@ def lambda_handler(event, context):
             )
         except Exception as e:
             print('Failed to stop inner bastion instance: ',e)
-            return 500
         else:
             print('stopped inner bastion instance',)
-            return 400
+
+    # Set back time for rules in EventBridge ................................. /            
+    client = boto3.client('events')
+
+    for rule in os.environ['rules_names'].split(','):
+        # Remove Target(s) ......
+        try:
+            response = client.put_rule(
+                Name=rule,
+                Description='',
+                ScheduleExpression='cron({* * * * ? 1999)'
+            )
+        except Exception as e:
+            print('Failed to set-back target(s): ',e)
+        else:
+            print('Set time back to 1999 for rule(s) in EventBridge: ',os.environ['rules_names'])
+            
+    return 400
+
+    

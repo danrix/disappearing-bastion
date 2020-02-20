@@ -21,13 +21,21 @@ def lambda_handler(event, context):
                 '\r\n\r\n{0}\r\n'.format(event['detail']['stack_owner'])
         # If it does ......................................................... ?
         else:
-            body_data = 'The access gate is ready.' \
-                '\r\n\r\nUse the following credentials to RDP in:' \
-                '\r\n\r\ngate IP: {0}\r\nuser name: {1}\r\npassword: {2}' \
-                '\r\n\r\nIMPORTANT: Please send an email to this address ' \
-                'with the subject line: "done" or "finished" or "revoke access"' \
-                'when you finish work.\r\nIt\'s important so we can shut it down' \
-                ' for security reasons.'.format(event['detail']['instance_ip'],event['detail']['user_name'],event['detail']['user_pass'])
+            if 'stack:ready:delayed' in event['detail']['breadcrumbs'] :
+                body_data = 'Please remember to send an email to this address ' \
+                    'with the subject line: "done" or "finished" or "revoke access"' \
+                    'when you finish work.\r\nIt\'s important that we shut down the ' \
+                    'access gate when you finish using it for security reasons.'
+            else:
+                body_data = 'The access gate is ready.' \
+                    '\r\n\r\nUse the following credentials to RDP in:' \
+                    '\r\n\r\ngate IP: {0}\r\nuser name: {1}\r\npassword: {2}' \
+                    '\r\n\r\nIMPORTANT: Please send an email to this address ' \
+                    'with the subject line: "done" or "finished" or "revoke access"' \
+                    'when you finish work.\r\nIt\'s important that we shut down the ' \
+                    'access gate when you finish using it for security reasons.'.format(event['detail']['instance_ip'],event['detail']['user_name'],event['detail']['user_pass'])
+    elif event['detail-type'] == 'stack:deleted':
+        body_data = 'The access gate and all it\'s resources have been terminated.\r\n\r\nThank you.'
     else:
         return 500
 
