@@ -3,36 +3,32 @@ import json
 import os
 
 def lambda_handler(event, context):
-    # Get Instance Id of inner bastion ....................................... /
-    client = boto3.client('ssm')
+    # Prepare Constants ...................................................... /
+    instance_id_path = 'inner_bastion/instanceId'
+    rules_names_path = 'rules/names'
 
+    # Attempt to stop inner bastion instance ................................. >
+
+    # Get instance id 
+    instance_id = getParameter(instance_id_path,True)
+
+    client = boto3.client('ec2')
     try:
-        response = client.get_parameter(
-            Name= os.environ['parameter_path'],
-            WithDecryption=True
-        ) 
+        response = client.stop_instances(
+            InstanceIds=[instance_id]
+        )
     except Exception as e:
-        print('Failed to get inner bastion instance Id: ',e)
+        print('Failed to stop inner bastion instance: ',e)
     else:
+        print('stopped inner bastion instance',)
 
-        # Attempt to stop inner bastion instance ............................. /
-        client = boto3.client('ec2')
+    # Set back time for rules in EventBridge ................................. >
+    # Get rules names 
+    rules_names = getParameter(rules_names_path)
 
-        try:
-            response = client.stop_instances(
-                InstanceIds=[
-                    response['Parameter']['Value']
-                ]
-            )
-        except Exception as e:
-            print('Failed to stop inner bastion instance: ',e)
-        else:
-            print('stopped inner bastion instance',)
-
-    # Set back time for rules in EventBridge ................................. /            
     client = boto3.client('events')
 
-    for rule in os.environ['rules_names'].split(','):
+    for rule in rules_names.split(','):
         # Set cron back in time to avoid running
         try:
             response = client.put_rule(
@@ -73,4 +69,20 @@ def lambda_handler(event, context):
 
     return 200
 
+def getParameter(sub_path,is_encrypted=False):
+    # Prepare
+    client = boto3.client('ssm')
+    full_path = os.environ['parameters_base_path']+sub_path
     
+    # Attempt to get parameter
+    try:
+        response = client.get_parameter(
+            Name= full_path,
+            WithDecryption=is_encrypted
+        )
+    except Exception as e:
+        print('Failed to get parameter: {0}. Error: {1}'.format(full_path,e))
+        return 500
+    else:
+        return response['Parameter']['Value']
+            
